@@ -1,0 +1,6 @@
+{
+  "name": "Controlo de Viaturas V4",
+  "description": "Sistema industrial para controle de tempo útil (DRR) e defeitos em linha de montagem.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

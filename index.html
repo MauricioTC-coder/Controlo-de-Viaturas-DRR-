@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1f2937" />
+    <title>Controlo de Viaturas</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <h1>Controlo de Viaturas</h1>
+        <p>DRR 31 min úteis · Trabalho 07:40-18:15 · Formulário em tela única</p>
+      </div>
+      <button id="installBtn" class="btn btn-light hidden" type="button">Instalar</button>
+    </header>
+
+    <main class="app-shell">
+      <nav class="tabs" aria-label="Navegação principal">
+        <button class="tab active" data-view="formView" type="button">Novo</button>
+        <button class="tab" data-view="suspendedView" type="button">Suspensos <span id="suspendedCount">0</span></button>
+        <button class="tab" data-view="historyView" type="button">Histórico</button>
+        <button class="tab" data-view="toolsView" type="button">CSV/Backup</button>
+      </nav>
+
+      <section id="formView" class="view active no-scroll-view">
+        <form id="vehicleForm" autocomplete="off" class="single-screen-form">
+          <input type="hidden" id="recordId" />
+
+          <section class="form-grid-one-screen">
+            <article class="panel panel-id">
+              <h2>Identificação</h2>
+              <label>Dia/Mês<input id="diaMes" maxlength="5" placeholder="21/04" required /></label>
+              <label>Sufixo/Renban<input id="renban" placeholder="8/AC92" required /></label>
+              <label>VIN<input id="vin" placeholder="Opcional" /></label>
+              <label class="key-field">Entrada Ret.<input id="horaEntradaRetificacao" class="work-time" type="time" min="07:40" max="18:15" step="60" required /></label>
+              <div class="rule-box">DRR: Entrada Ret. → APTO/DRR<br>Conta 07:40-18:15 e desconta intervalos</div>
+            </article>
+
+            <article class="panel panel-repair">
+              <h2>Reparação</h2>
+              <label>Nº def.<input id="numDefeitosPorReparar" type="number" min="0" value="0" /></label>
+              <div class="toggle" data-target="desmontaMonta"><span>Desmonta/Monta</span><button type="button" data-value="S">S</button><button type="button" data-value="N" class="selected">N</button></div><input id="desmontaMonta" type="hidden" value="N" />
+              <div class="toggle" data-target="substituicaoPecas"><span>Subst. Peças</span><button type="button" data-value="S">S</button><button type="button" data-value="N" class="selected">N</button></div><input id="substituicaoPecas" type="hidden" value="N" />
+              <div class="toggle" data-target="suspenso"><span>Suspenso</span><button type="button" data-value="S">S</button><button type="button" data-value="N" class="selected">N</button></div><input id="suspenso" type="hidden" value="N" />
+            </article>
+
+            <article class="panel panel-mount">
+              <h2>Montagem</h2>
+              <div class="mini-grid qty-line">
+                <div class="toggle toggle-wide" data-target="montagemSimNao"><span>Montagem?</span><button type="button" data-value="SIM">SIM</button><button type="button" data-value="NÃO" class="selected">NÃO</button></div><input id="montagemSimNao" type="hidden" value="NÃO" />
+                <label>Qtd.<input id="montagemQtd" type="number" min="0" value="0" /></label>
+              </div>
+              <label>Designação<textarea id="montagemDesignacao" rows="1"></textarea></label>
+              <label>Mont. Final<textarea id="linhaMontFinal" rows="1"></textarea></label>
+              <label>Trimming<textarea id="linhaTrimming" rows="1"></textarea></label>
+              <label>Chassi<textarea id="linhaChassi" rows="1"></textarea></label>
+              <label class="key-field">Saída ARC<input id="horaSaidaArc" class="work-time" type="time" min="07:40" max="18:15" step="60" /></label>
+            </article>
+
+            <article class="panel panel-paint">
+              <h2>Aparência Pintura</h2>
+              <div class="mini-grid qty-line">
+                <div class="toggle toggle-wide" data-target="pinturaSimNao"><span>Pintura?</span><button type="button" data-value="SIM">SIM</button><button type="button" data-value="NÃO" class="selected">NÃO</button></div><input id="pinturaSimNao" type="hidden" value="NÃO" />
+                <label>Qtd.<input id="pinturaQtd" type="number" min="0" value="0" /></label>
+              </div>
+              <label>Entrada Pint.<input id="horaEntradaPintura" class="work-time" type="time" min="07:40" max="18:15" step="60" /></label>
+              <div id="defectsBox" class="defects compact-defects"></div>
+              <label>Outros<textarea id="pinturaOutros" rows="1"></textarea></label>
+              <div class="mini-grid qty-line">
+                <div class="toggle" data-target="pinturaRetoque"><span>Retoque</span><button type="button" data-value="S">S</button><button type="button" data-value="N" class="selected">N</button></div><input id="pinturaRetoque" type="hidden" value="N" />
+                <label>Saída Pint.<input id="horaSaidaPintura" class="work-time" type="time" min="07:40" max="18:15" step="60" /></label>
+              </div>
+            </article>
+
+            <article class="panel panel-obs">
+              <h2>Obs. / ASS.TM</h2>
+              <div class="toggle toggle-wide" data-target="adicionalSimNao"><span>Adicional?</span><button type="button" data-value="SIM">SIM</button><button type="button" data-value="NÃO" class="selected">NÃO</button></div><input id="adicionalSimNao" type="hidden" value="NÃO" />
+              <label>Qtd.<input id="adicionalQtd" type="number" min="0" value="0" /></label>
+              <label>Designação<textarea id="adicionalDesignacao" rows="1"></textarea></label>
+              <div class="toggle" data-target="adicionalRetoque"><span>Retoque</span><button type="button" data-value="S">S</button><button type="button" data-value="N" class="selected">N</button></div><input id="adicionalRetoque" type="hidden" value="N" />
+              <label>OBS<textarea id="observacoes" rows="2"></textarea></label>
+              <label>ASS.TM<input id="operadorVermelho" /></label>
+            </article>
+          </section>
+
+          <div class="action-bar compact-action-bar">
+            <button class="btn btn-primary" type="submit">Guardar</button>
+            <button id="newBtn" class="btn" type="button">Limpar</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="suspendedView" class="view list-view">
+        <div class="info-panel"><h2>Viaturas Suspensas / Aguardando Validação</h2><p>Viaturas registradas aguardando a validação de APTO/DRR.</p></div>
+        <div id="suspendedList" class="cards"></div>
+      </section>
+
+      <section id="historyView" class="view list-view">
+        <div class="info-panel history-head">
+          <div><h2>Histórico</h2><p>Cartões responsivos, sem rolagem horizontal.</p></div>
+          <div class="filters"><input id="searchInput" placeholder="Pesquisar..." /><select id="statusFilter"><option value="">Todos</option><option value="AGUARDANDO_APTO_DRR">Aguardando</option><option value="APTO_DRR_POSITIVO">APTO/DRR positivo</option><option value="NAO_APTO_DRR_NEGATIVO">Não apto/DRR negativo</option></select></div>
+        </div>
+        <div id="historyCards" class="cards"></div>
+      </section>
+
+      <section id="toolsView" class="view list-view">
+        <div class="tools-grid">
+          <article class="panel"><h2>CSV</h2><button id="exportCsvBtn" class="btn btn-primary" type="button">Exportar CSV</button></article>
+          <article class="panel"><h2>Backup</h2><button id="backupJsonBtn" class="btn" type="button">Exportar JSON</button><label class="file-btn">Importar JSON<input id="importJsonInput" type="file" accept="application/json" /></label></article>
+          <article class="panel danger"><h2>Limpar</h2><button id="clearDbBtn" class="btn btn-danger" type="button">Limpar base</button></article>
+          <article class="panel"><h2>Instruções</h2><p>Sem validação por PIN. Todas as viaturas registradas aguardam validação diretamente na aba de <b>Suspensos</b>.</p></article>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="validateDialog">
+      <form id="validateForm" method="dialog" class="modal">
+        <h2>Validar APTO/DRR</h2>
+        <p id="dialogVehicleInfo"></p>
+        <input id="validateRecordId" type="hidden" />
+        <label>Hora APTO/DRR<input id="horaAptoDrr" class="work-time" type="time" min="07:40" max="18:15" step="60" required /></label>
+        <div id="validationPreview" class="result neutral">Informe a hora para pré-visualizar.</div>
+        <div class="modal-actions"><button id="cancelValidateBtn" class="btn" type="button">Cancelar</button><button class="btn btn-primary" type="submit">Confirmar</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="confirmDialog">
+      <form id="confirmForm" method="dialog" class="modal">
+        <h2 id="confirmTitle" style="margin: 0 0 8px; font-size: 16px; font-weight: bold;">Confirmar Ação</h2>
+        <p id="confirmMessage" style="margin: 4px 0 12px; font-size: 13px; color: #4b5563;"></p>
+        <div class="modal-actions">
+          <button id="cancelConfirmBtn" class="btn" type="button">Cancelar</button>
+          <button id="submitConfirmBtn" class="btn btn-danger" type="button">Confirmar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
