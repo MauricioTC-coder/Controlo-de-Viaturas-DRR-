@@ -4,7 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#1f2937" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <link rel="manifest" href="/manifest.json" />
     <title>Controlo de Viaturas</title>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => {
+              console.log('Service Worker registado com sucesso no escopo:', reg.scope);
+            })
+            .catch(err => {
+              console.error('Falha ao registar o Service Worker:', err);
+            });
+        });
+      }
+    </script>
   </head>
   <body>
     <header class="topbar">
@@ -20,6 +37,7 @@
         <button class="tab active" data-view="formView" type="button">Novo</button>
         <button class="tab" data-view="suspendedView" type="button">Suspensos <span id="suspendedCount">0</span></button>
         <button class="tab" data-view="historyView" type="button">Histórico</button>
+        <button class="tab" data-view="analyticsView" type="button">Análises</button>
         <button class="tab" data-view="toolsView" type="button">CSV/Backup</button>
       </nav>
 
@@ -102,6 +120,137 @@
           <div class="filters"><input id="searchInput" placeholder="Pesquisar..." /><select id="statusFilter"><option value="">Todos</option><option value="AGUARDANDO_APTO_DRR">Aguardando</option><option value="APTO_DRR_POSITIVO">APTO/DRR positivo</option><option value="NAO_APTO_DRR_NEGATIVO">Não apto/DRR negativo</option></select></div>
         </div>
         <div id="historyCards" class="cards"></div>
+      </section>
+
+      <section id="analyticsView" class="view list-view">
+        <div class="info-panel history-head">
+          <div>
+            <h2>Análise de Indicadores</h2>
+            <p>Estatísticas gerais, takt-time útil, distribuição de defeitos e registos de ASS.TM.</p>
+          </div>
+          <div class="filters" style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+            <label style="margin: 0; white-space: nowrap; font-weight: bold;">Dia/Mês:</label>
+            <select id="analyticsDateFilter" style="width: auto; min-width: 120px; height: 30px; margin: 0;">
+              <option value="">Todos os Dias</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="analytics-layout" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; overflow: auto; min-height: 0; padding-bottom: 12px;">
+          <!-- Left side metrics -->
+          <div style="display: flex; flex-direction: column; gap: 10px; min-width: 0;">
+            <!-- KPI Cards Grid -->
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+              <div class="panel" style="padding: 10px; text-align: center;">
+                <span style="font-size: 10px; color: #4b5563; font-weight: bold; text-transform: uppercase;">Total Registado</span>
+                <div id="statTotalCarros" style="font-size: 28px; font-weight: 900; color: var(--dark); margin: 4px 0;">0</div>
+                <div id="statConcluidosMini" style="font-size: 10px; color: #6b7280; font-weight: bold;">0 concluídos · 0 aguardando</div>
+              </div>
+              
+              <div class="panel" style="padding: 10px; text-align: center;">
+                <span style="font-size: 10px; color: #4b5563; font-weight: bold; text-transform: uppercase;">Aprovação (APTO)</span>
+                <div id="statTaxaApto" style="font-size: 28px; font-weight: 900; color: var(--green); margin: 4px 0;">0%</div>
+                <div id="statAprovadosMini" style="font-size: 10px; color: #6b7280; font-weight: bold;">0 aptos · 0 não aptos</div>
+              </div>
+              
+              <div class="panel" style="padding: 10px; text-align: center;">
+                <span style="font-size: 10px; color: #4b5563; font-weight: bold; text-transform: uppercase;">Tempo DRR Médio</span>
+                <div id="statTempoMedio" style="font-size: 28px; font-weight: 900; color: var(--blue); margin: 4px 0;">0 min</div>
+                <div id="statSinalizacaoTakt" style="font-size: 10px; color: #6b7280; font-weight: bold;">Alvo: ≤ 31 minutos</div>
+              </div>
+              
+              <div class="panel" style="padding: 10px; text-align: center;">
+                <span style="font-size: 10px; color: #4b5563; font-weight: bold; text-transform: uppercase;">Total de Defeitos</span>
+                <div id="statTotalDefeitos" style="font-size: 28px; font-weight: 900; color: var(--red); margin: 4px 0;">0</div>
+                <div id="statMedioDefCarro" style="font-size: 10px; color: #6b7280; font-weight: bold;">Média: 0.0 por carro</div>
+              </div>
+            </div>
+            
+            <!-- Takt Compliance graphic panel -->
+            <div class="panel" style="padding: 10px; display: flex; flex-direction: column; min-height: 150px;">
+              <h2>Cumprimento do Takt Time (Alvo 31 min)</h2>
+              <div style="display: flex; gap: 12px; align-items: center; justify-content: center; flex: 1; padding: 10px 0;">
+                <div id="taktChartContainer" style="position: relative; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center;">
+                  <!-- Dynamically populated in logic.ts -->
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="display:inline-block; width: 12px; height: 12px; background-color: var(--green); border-radius: 3px;"></span>
+                    <span>No Takt (≤ 31 min): <b id="statTaktDentro">0 (0%)</b></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="display:inline-block; width: 12px; height: 12px; background-color: var(--red); border-radius: 3px;"></span>
+                    <span>Fora do Takt (&gt; 31 min): <b id="statTaktFora">0 (0%)</b></span>
+                  </div>
+                  <div style="font-size: 10px; color: #4b5563; line-height: 1.25; border-top: 1px dashed #cbd5e1; padding-top: 6px; margin-top: 4px;">
+                    As horas úteis de trabalho contam das <b>07:40 às 18:15</b> com os dedutíveis de intervalos da retificação.
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Additional indicators -->
+            <div class="panel" style="padding: 10px;">
+              <h2>Outra Atividades Extra</h2>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; text-align: center;">
+                <div style="background: #f8fafc; padding: 6px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 10px; color: #4b5563; font-weight: 900;">Desmonta/Monta</span>
+                  <div id="statDesmontaCount" style="font-size: 16px; font-weight: 900; color: var(--dark); margin: 2px 0;">0</div>
+                </div>
+                <div style="background: #f8fafc; padding: 6px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 10px; color: #4b5563; font-weight: 900;">Subst. Peças</span>
+                  <div id="statSubstCount" style="font-size: 16px; font-weight: 900; color: var(--dark); margin: 2px 0;">0</div>
+                </div>
+                <div style="background: #f8fafc; padding: 6px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                  <span style="font-size: 10px; color: #4b5563; font-weight: 900;">Montagem Extra</span>
+                  <div id="statMontagemQtd" style="font-size: 16px; font-weight: 900; color: var(--dark); margin: 2px 0;">0</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Email Report Panel -->
+            <div class="panel" style="padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+              <h2>Enviar Indicadores por Email</h2>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <label style="margin: 0; font-size: 10px; font-weight: bold; color: #4b5563;">Email do Destinatário:</label>
+                <input id="emailRecipient" type="email" placeholder="maquinista@exemplo.com" style="height: 28px; font-size: 11px; margin: 0; padding: 2px 6px; border: 1px solid #cbd5e1; border-radius: 6px;" />
+              </div>
+              <button id="sendEmailReportBtn" class="btn btn-primary" type="button" style="margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 30px; font-size: 11px;">
+                <span>✉️</span> Enviar Relatório por Email
+              </button>
+            </div>
+          </div>
+          
+          <!-- Right side: Defect chart and leaderboards -->
+          <div style="display: flex; flex-direction: column; gap: 10px; min-width: 0;">
+            <!-- Defects horizontal bars card -->
+            <div class="panel" style="padding: 10px; display: flex; flex-direction: column; flex: 1; min-height: 250px;">
+              <h2>Distribuição de Defeitos de Aparência Pintura</h2>
+              <div id="defectsChartContainer" style="flex: 1; display: flex; flex-direction: column; justify-content: space-around; padding: 10px 0; gap: 4px;">
+                <!-- Bar Chart dynamically injected -->
+              </div>
+            </div>
+            
+            <!-- Leaderboard for ASS.TM -->
+            <div class="panel" style="padding: 10px; display: flex; flex-direction: column; min-height: 150px;">
+              <h2>Registo de Viaturas por Operador (ASS.TM)</h2>
+              <div style="overflow-y: auto; flex: 1; max-height: 140px;">
+                <table id="operatorLeaderboardTable" style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                  <thead>
+                    <tr style="border-bottom: 2px solid #cbd5e1; text-align: left; color: #4b5563;">
+                      <th style="padding: 4px; font-weight: bold;">Operador (ASS.TM)</th>
+                      <th style="padding: 4px; font-weight: bold; text-align: center; width: 80px;">Registos</th>
+                      <th style="padding: 4px; font-weight: bold; text-align: center; width: 80px;">Defeitos</th>
+                    </tr>
+                  </thead>
+                  <tbody id="operatorLeaderboardBody">
+                    <!-- Leaderboard rows dynamically injected -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section id="toolsView" class="view list-view">

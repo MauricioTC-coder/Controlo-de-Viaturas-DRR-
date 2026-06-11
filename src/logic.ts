@@ -40,6 +40,7 @@ export function initApp() {
     initValidation();
     initTools();
     initFilters();
+    initAnalyticsFilter();
     initWorkTimeValidation();
     setDefaultDate();
     refreshAll();
@@ -103,7 +104,7 @@ function getDefects(){const o: any={};DEFECTS.forEach(([id])=>o[id]=Number($('de
 function clearForm(){$('vehicleForm').reset();$('recordId').value='';$('vehicleForm').dataset.criadoEm='';['desmontaMonta','substituicaoPecas','suspenso','pinturaRetoque','adicionalRetoque'].forEach(id=>setToggle(id,'N'));['montagemSimNao','pinturaSimNao','adicionalSimNao'].forEach(id=>setToggle(id,'NÃO'));DEFECTS.forEach(([id])=>$('def_'+id).value=0);$('numDefeitosPorReparar').value=0;$('montagemQtd').value=0;$('pinturaQtd').value=0;$('adicionalQtd').value=0;document.querySelectorAll('.work-time').forEach((i: any)=>i.setCustomValidity(''));setDefaultDate();}
 function setDefaultDate(){const d=new Date();$('diaMes').value=String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0');}
 
-async function refreshAll(){currentRecords=await getAllRecords();renderSuspended();renderHistory();}
+async function refreshAll(){currentRecords=await getAllRecords();renderSuspended();renderHistory();populateAnalyticsDateFilter();renderAnalytics();}
 
 function suspendedRecords(){return currentRecords.filter(r=>r.status==='AGUARDANDO_APTO_DRR'&&!r.validacaoDrr);}
 function renderSuspended(){const list=$('suspendedList');const suspended=suspendedRecords();$('suspendedCount').textContent=suspended.length;if(!suspended.length){list.innerHTML='<article class="panel"><h2>Sem suspensos / aguardando</h2><p>Nenhuma viatura aguardando validação.</p></article>';return;}list.innerHTML=suspended.map(r=>cardHtml(r,true)).join('');bindCardButtons();}
@@ -177,3 +178,362 @@ function showToast(msg){$('toast').textContent=msg;$('toast').classList.remove('
 function fmt(iso){if(!iso)return'';try{return new Date(iso).toLocaleString('pt-PT')}catch{return iso}}
 function stamp(){return new Date().toISOString().slice(0,19).replaceAll(':','-');}
 function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+
+function initAnalyticsFilter() {
+  const filter = $('analyticsDateFilter');
+  if (filter) {
+    filter.addEventListener('change', () => {
+      renderAnalytics();
+    });
+  }
+
+  // Carregar email guardado anteriormente
+  const savedEmail = localStorage.getItem('controlo_viaturas_email_dest') || '';
+  const emailInput = $('emailRecipient') as HTMLInputElement;
+  if (emailInput) {
+    emailInput.value = savedEmail;
+    emailInput.addEventListener('input', () => {
+      localStorage.setItem('controlo_viaturas_email_dest', emailInput.value.trim());
+    });
+  }
+
+  // Associar ação de clique ao botão de envio
+  const sendBtn = $('sendEmailReportBtn');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', generateAndSendEmail);
+  }
+}
+
+function generateAndSendEmail() {
+  const filter = $('analyticsDateFilter') as HTMLSelectElement;
+  const dateFilterVal = filter ? filter.value : '';
+  const emailVal = ($('emailRecipient') as HTMLInputElement)?.value.trim() || '';
+
+  if (!emailVal) {
+    showToast('Por favor, introduza um email válido no campo Destinatário.');
+    return;
+  }
+
+  // Guardar email no localStorage para futuras consultas
+  localStorage.setItem('controlo_viaturas_email_dest', emailVal);
+
+  const filtered = currentRecords.filter(r => !dateFilterVal || r.diaMes === dateFilterVal);
+  if (!filtered.length) {
+    showToast('Não existem registos de viaturas para este período.');
+    return;
+  }
+
+  const total = filtered.length;
+  const concluded = filtered.filter(r => r.status === 'APTO_DRR_POSITIVO' || r.status === 'NAO_APTO_DRR_NEGATIVO');
+  const awaiting = filtered.filter(r => r.status === 'AGUARDANDO_APTO_DRR');
+  
+  const aptoCount = concluded.filter(r => r.status === 'APTO_DRR_POSITIVO').length;
+  const naoAptoCount = concluded.filter(r => r.status === 'NAO_APTO_DRR_NEGATIVO').length;
+  const aptoRate = concluded.length > 0 ? Math.round((aptoCount / concluded.length) * 100) : 0;
+  
+  const validTimes = concluded.map(r => r.validacaoDrr?.tempoDrrUtilMinutos).filter((t): t is number => t !== undefined && t !== null);
+  const avgDrrTime = validTimes.length ? Math.round(validTimes.reduce((a, b) => a + b, 0) / validTimes.length) : 0;
+  
+  let totalDefectCount = 0;
+  const defectTally: Record<string, number> = {};
+  DEFECTS.forEach(([id]) => { defectTally[id] = 0; });
+  
+  let desmontaCount = 0;
+  let substCount = 0;
+  let montagemQtdTotal = 0;
+  
+  filtered.forEach(r => {
+    if (r.desmontaMonta === 'S') desmontaCount++;
+    if (r.substituicaoPecas === 'S') substCount++;
+    if (r.montagemSimNao === 'SIM') montagemQtdTotal += Number(r.montagemQtd || 0);
+    
+    const d = r.defeitosPintura || {};
+    DEFECTS.forEach(([id]) => {
+      const val = Number(d[id] || 0);
+      defectTally[id] += val;
+      totalDefectCount += val;
+    });
+  });
+  
+  const avgDefectsPerCar = total > 0 ? (totalDefectCount / total).toFixed(1) : '0.0';
+  const withinTakt = concluded.filter(r => (r.validacaoDrr?.tempoDrrUtilMinutos ?? 0) <= TAKT_TIME_MIN).length;
+  const outOfTakt = concluded.length - withinTakt;
+  const withinPct = concluded.length > 0 ? Math.round((withinTakt / concluded.length) * 100) : 0;
+
+  const subject = `Relatório de Indicadores Diários - Controlo de Viaturas [${dateFilterVal || 'Todos os Dias'}]`;
+  
+  let b = '';
+  b += `==================================================\n`;
+  b += `📊 RELATÓRIO DO CONTROLO - RETIFICAÇÃO DE VIATURAS\n`;
+  b += `==================================================\n`;
+  b += `📅 Período: ${dateFilterVal || 'Todas as Datas'}\n`;
+  b += `🕒 Gerado em: ${new Date().toLocaleString('pt-PT')}\n\n`;
+  
+  b += `📈 INDICADORES DE PERFORMANCE\n`;
+  b += `----------------------------------------------\n`;
+  b += `• Total de Viaturas Registadas: ${total}\n`;
+  b += `  ⤷ Concluídas com Decisão: ${concluded.length}\n`;
+  b += `  ⤷ Aguardando Validação: ${awaiting.length}\n`;
+  b += `• Taxa de Aprovação (APTO/DRR): ${aptoRate}%\n`;
+  b += `  ⤷ APTOS: ${aptoCount} | NÃO APTOS: ${naoAptoCount}\n`;
+  b += `• Tempo de DRR Útil Médio: ${avgDrrTime} minutos (Alvo ≤ 31 min)\n`;
+  b += `• Cumprimento do Takt Time: ${withinPct}% no Takt\n`;
+  b += `  ⤷ Dentro do Prazo: ${withinTakt} viatura(s)\n`;
+  b += `  ⤷ Excederam o Prazo: ${outOfTakt} viatura(s)\n`;
+  b += `• Total de Defeitos de Aparência (Pintura): ${totalDefectCount}\n`;
+  b += `  ⤷ Média de Defeitos por Viatura: ${avgDefectsPerCar}\n\n`;
+
+  b += `🔧 OUTRAS ATIVIDADES EXTRA\n`;
+  b += `----------------------------------------------\n`;
+  b += `• Desmontagem/Montagem: ${desmontaCount} viatura(s)\n`;
+  b += `• Substituição de Peças: ${substCount} viatura(s)\n`;
+  b += `• Quantidade Total Montagem Extra: ${montagemQtdTotal}\n\n`;
+
+  b += `🎨 DISTRIBUIÇÃO DOS DEFEITOS REGISTADOS\n`;
+  b += `----------------------------------------------\n`;
+  DEFECTS.forEach(([id, label]) => {
+    const qty = defectTally[id] || 0;
+    if (qty > 0) {
+      b += `• ${label}: ${qty}\n`;
+    }
+  });
+  if (totalDefectCount === 0) b += `• Nenhum defeito registado.\n`;
+  b += `\n`;
+
+  b += `👤 OPERADORES DE REGISTO (ASS.TM)\n`;
+  b += `----------------------------------------------\n`;
+  const opStats: Record<string, { records: number, defects: number }> = {};
+  filtered.forEach(r => {
+    const op = (r.operadorVermelho || '').trim() || 'Desconhecido';
+    if (!opStats[op]) opStats[op] = { records: 0, defects: 0 };
+    opStats[op].records++;
+    const d = r.defeitosPintura || {};
+    DEFECTS.forEach(([id]) => { opStats[op].defects += Number(d[id] || 0); });
+  });
+  const sortedOps = Object.entries(opStats).sort((a,b) => b[1].records - a[1].records);
+  if (sortedOps.length === 0) {
+    b += `Nenhum registrador ativo.\n`;
+  } else {
+    sortedOps.forEach(([name, s]) => {
+      b += `• ${name}: ${s.records} viatura(s) e ${s.defects} defeito(s)\n`;
+    });
+  }
+  b += `\n`;
+
+  b += `📋 LISTAGEM COMPLETA DAS VIATURAS\n`;
+  b += `----------------------------------------------\n`;
+  filtered.forEach((r, i) => {
+    const v = r.validacaoDrr;
+    let statusDesc = r.status;
+    if (r.status === 'AGUARDANDO_APTO_DRR') statusDesc = 'AGUARDANDO';
+    else if (r.status === 'APTO_DRR_POSITIVO') statusDesc = 'APTO (DENTRO)';
+    else if (r.status === 'NAO_APTO_DRR_NEGATIVO') statusDesc = 'FORA DO TAKT';
+    
+    b += `${i + 1}. RENBAN: ${r.renban || '-'} | VIN: ${r.vin || '-'} | Operador: ${r.operadorVermelho || '-'}\n`;
+    b += `   ⤷ Entrada: ${r.horaEntradaRetificacao || '-'} | ARC: ${r.horaSaidaArc || '-'} | Saída Pintura: ${r.horaSaidaPintura || '-'}\n`;
+    b += `   ⤷ Estado: ${statusDesc}`;
+    if (v) {
+      b += ` | DRR Útil: ${v.tempoDrrUtilMinutos} min (Validado às ${v.horaAptoDrr})`;
+    }
+    b += `\n`;
+  });
+  b += `\n==================================================\n`;
+  b += `Mensagem automática enviada pelo App Controlo de Viaturas e Retificação.`;
+
+  const mailtoUrl = `mailto:${encodeURIComponent(emailVal)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(b)}`;
+  
+  showToast('A abrir cliente de email...');
+  window.location.href = mailtoUrl;
+}
+
+function populateAnalyticsDateFilter() {
+  const select = $('analyticsDateFilter') as HTMLSelectElement;
+  if (!select) return;
+  const currentVal = select.value;
+  
+  const dates = Array.from(new Set(currentRecords.map(r => r.diaMes).filter(Boolean))) as string[];
+  dates.sort((a, b) => {
+    const [da, ma] = a.split('/').map(Number);
+    const [db, mb] = b.split('/').map(Number);
+    if (ma !== mb) return (ma || 0) - (mb || 0);
+    return (da || 0) - (db || 0);
+  });
+  
+  let html = '<option value="">Todos os Dias</option>';
+  dates.forEach(d => {
+    html += `<option value="${esc(d)}">${esc(d)}</option>`;
+  });
+  
+  select.innerHTML = html;
+  if (dates.includes(currentVal)) {
+    select.value = currentVal;
+  } else {
+    select.value = '';
+  }
+}
+
+function renderAnalytics() {
+  const filter = $('analyticsDateFilter') as HTMLSelectElement;
+  const dateFilterVal = filter ? filter.value : '';
+  
+  const filtered = currentRecords.filter(r => !dateFilterVal || r.diaMes === dateFilterVal);
+  
+  const total = filtered.length;
+  const concluded = filtered.filter(r => r.status === 'APTO_DRR_POSITIVO' || r.status === 'NAO_APTO_DRR_NEGATIVO');
+  const awaiting = filtered.filter(r => r.status === 'AGUARDANDO_APTO_DRR');
+  const concludedCount = concluded.length;
+  
+  const aptoCount = concluded.filter(r => r.status === 'APTO_DRR_POSITIVO').length;
+  const naoAptoCount = concluded.filter(r => r.status === 'NAO_APTO_DRR_NEGATIVO').length;
+  const aptoRate = concludedCount > 0 ? Math.round((aptoCount / concludedCount) * 100) : 0;
+  
+  const validTimes = concluded.map(r => r.validacaoDrr?.tempoDrrUtilMinutos).filter((t): t is number => t !== undefined && t !== null);
+  const avgDrrTime = validTimes.length ? Math.round(validTimes.reduce((a, b) => a + b, 0) / validTimes.length) : 0;
+  
+  let totalDefectCount = 0;
+  const defectTally: Record<string, number> = {};
+  DEFECTS.forEach(([id]) => { defectTally[id] = 0; });
+  
+  let desmontaCount = 0;
+  let substCount = 0;
+  let montagemQtdTotal = 0;
+  
+  filtered.forEach(r => {
+    if (r.desmontaMonta === 'S') desmontaCount++;
+    if (r.substituicaoPecas === 'S') substCount++;
+    if (r.montagemSimNao === 'SIM') montagemQtdTotal += Number(r.montagemQtd || 0);
+    
+    const d = r.defeitosPintura || {};
+    DEFECTS.forEach(([id]) => {
+      const val = Number(d[id] || 0);
+      defectTally[id] += val;
+      totalDefectCount += val;
+    });
+  });
+  
+  const avgDefectsPerCar = total > 0 ? (totalDefectCount / total).toFixed(1) : '0.0';
+  
+  if ($('statTotalCarros')) $('statTotalCarros').textContent = total.toString();
+  if ($('statConcluidosMini')) $('statConcluidosMini').textContent = `${concludedCount} concluídos · ${awaiting.length} aguardando`;
+  
+  if ($('statTaxaApto')) {
+    $('statTaxaApto').textContent = `${aptoRate}%`;
+    $('statTaxaApto').style.color = aptoRate >= 80 ? 'var(--green)' : (aptoRate >= 50 ? 'var(--blue)' : 'var(--red)');
+  }
+  if ($('statAprovadosMini')) $('statAprovadosMini').textContent = `${aptoCount} aptos · ${naoAptoCount} não aptos`;
+  
+  if ($('statTempoMedio')) {
+    $('statTempoMedio').textContent = `${avgDrrTime} min`;
+    $('statTempoMedio').style.color = avgDrrTime <= TAKT_TIME_MIN ? 'var(--green)' : 'var(--red)';
+  }
+  if ($('statSinalizacaoTakt')) $('statSinalizacaoTakt').textContent = avgDrrTime <= TAKT_TIME_MIN ? 'Dentro do Limite DRR' : 'Excede Limite DRR';
+  
+  if ($('statTotalDefeitos')) $('statTotalDefeitos').textContent = totalDefectCount.toString();
+  if ($('statMedioDefCarro')) $('statMedioDefCarro').textContent = `Média: ${avgDefectsPerCar} por carro`;
+  
+  if ($('statDesmontaCount')) $('statDesmontaCount').textContent = desmontaCount.toString();
+  if ($('statSubstCount')) $('statSubstCount').textContent = substCount.toString();
+  if ($('statMontagemQtd')) $('statMontagemQtd').textContent = montagemQtdTotal.toString();
+  
+  const withinTakt = concluded.filter(r => (r.validacaoDrr?.tempoDrrUtilMinutos ?? 0) <= TAKT_TIME_MIN).length;
+  const outOfTakt = concludedCount - withinTakt;
+  const withinPct = concludedCount > 0 ? Math.round((withinTakt / concludedCount) * 100) : 0;
+  const outPct = concludedCount > 0 ? (100 - withinPct) : 0;
+  
+  if ($('statTaktDentro')) $('statTaktDentro').textContent = `${withinTakt} (${withinPct}%)`;
+  if ($('statTaktFora')) $('statTaktFora').textContent = `${outOfTakt} (${outPct}%)`;
+  
+  const rRing = 30;
+  const circum = 2 * Math.PI * rRing;
+  const strokeDashWithin = circum * (withinPct / 100);
+  
+  let donutSvg = '';
+  if (concludedCount === 0) {
+    donutSvg = `
+      <svg width="100" height="100" viewBox="0 0 100 100" style="transform: rotate(-90deg);">
+        <circle cx="50" cy="50" r="${rRing}" fill="transparent" stroke="#cbd5e1" stroke-width="12" />
+      </svg>
+      <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: #4b5563;">Sem dados</div>
+    `;
+  } else {
+    donutSvg = `
+      <svg width="100" height="100" viewBox="0 0 100 100" style="transform: rotate(-90deg);">
+        <circle cx="50" cy="50" r="${rRing}" fill="transparent" stroke="var(--red)" stroke-width="12" />
+        <circle cx="50" cy="50" r="${rRing}" fill="transparent" stroke="var(--green)" stroke-width="12"
+          stroke-dasharray="${circum}"
+          stroke-dashoffset="${circum - strokeDashWithin}" />
+      </svg>
+      <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1;">
+        <span style="font-size: 16px; font-weight: 900; color: var(--green);">${withinPct}%</span>
+        <span style="font-size: 8px; font-weight: bold; color: #6b7280; text-transform: uppercase; margin-top: 2px;">No prazo</span>
+      </div>
+    `;
+  }
+  if ($('taktChartContainer')) $('taktChartContainer').innerHTML = donutSvg;
+  
+  const defectsArr = DEFECTS.map(([id, label]) => ({
+    id,
+    label,
+    count: defectTally[id] || 0
+  }));
+  const maxCount = Math.max(...defectsArr.map(d => d.count), 1);
+  
+  const defectsHtml = defectsArr.map(d => {
+    const pct = Math.round((d.count / maxCount) * 100);
+    const barColor = d.count > 0 ? '#ef4444' : '#cbd5e1';
+    return `
+      <div style="display: grid; grid-template-columns: 80px 1fr 30px; gap: 8px; align-items: center; font-size: 11px; font-weight: bold; height: 18px;">
+        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; color: var(--dark);">${d.label}</span>
+        <div style="background: #f1f5f9; border-radius: 4px; height: 10px; width: 100%; overflow: hidden; display: flex; align-items: center;">
+          <div style="background: ${barColor}; width: ${Math.max(2, pct)}%; height: 100%; border-radius: 4px; transition: width 0.3s ease;"></div>
+        </div>
+        <span style="color: ${d.count > 0 ? 'var(--red)' : '#6b7280'}; text-align: left; padding-left: 2px;">${d.count}</span>
+      </div>
+    `;
+  }).join('');
+  
+  if ($('defectsChartContainer')) $('defectsChartContainer').innerHTML = defectsHtml;
+  
+  const userStats: Record<string, { records: number, defects: number }> = {};
+  filtered.forEach(r => {
+    const op = (r.operadorVermelho || '').trim() || 'Desconhecido';
+    if (!userStats[op]) {
+      userStats[op] = { records: 0, defects: 0 };
+    }
+    userStats[op].records++;
+    
+    const d = r.defeitosPintura || {};
+    DEFECTS.forEach(([id]) => {
+      userStats[op].defects += Number(d[id] || 0);
+    });
+  });
+  
+  const leaderboardArr = Object.entries(userStats).map(([name, stats]) => ({
+    name,
+    records: stats.records,
+    defects: stats.defects
+  })).sort((a, b) => b.records - a.records);
+  
+  let leaderboardHtml = '';
+  if (leaderboardArr.length === 0) {
+    leaderboardHtml = `
+      <tr>
+        <td colspan="3" style="text-align: center; padding: 12px; color: #6b7280; font-weight: bold;">
+          Nenhum operador com registros neste período.
+        </td>
+      </tr>
+    `;
+  } else {
+    leaderboardHtml = leaderboardArr.map(op => {
+      return `
+        <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 6px 4px; font-weight: 900; color: var(--dark);">${esc(op.name)}</td>
+          <td style="padding: 6px 4px; text-align: center; font-weight: bold; color: var(--blue);">${op.records}</td>
+          <td style="padding: 6px 4px; text-align: center; font-weight: bold; color: var(--red);">${op.defects}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+  
+  if ($('operatorLeaderboardBody')) $('operatorLeaderboardBody').innerHTML = leaderboardHtml;
+}

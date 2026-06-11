@@ -1,0 +1,24 @@
+{
+  "name": "Controlo de Viaturas e Retificação",
+  "short_name": "Controlo Viaturas",
+  "description": "App para controlo de viaturas, tempos drr úteis e registos de retificação.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1f2937",
+  "theme_color": "#1f2937",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
